@@ -1,7 +1,6 @@
-// routes/delivery.js
-import express from 'express';
-import Order from '../models/Order.js';
-import Pincode from '../models/Pincode.js';
+const express = require('express');
+const Order = require('../models/Order'); // Make sure this path is correct
+const Pincode = require('../models/Pincode'); // Make sure this path is correct
 
 const router = express.Router();
 
@@ -9,19 +8,20 @@ const router = express.Router();
 router.get('/orders/:pincode', async (req, res) => {
   try {
     const { pincode } = req.params;
+    console.log('Fetching delivery orders for pincode:', pincode);
     
-    // Find orders with the specified pincode
-    const orders = await Order.find({ 
+    const orders = await Order.find({
       'shippingAddress.pincode': pincode,
-      orderStatus: { $in: ['Placed', 'Out for Delivery'] } // Only show orders that are not delivered or cancelled
+      orderStatus: { $in: ['Placed', 'Out for Delivery'] }
     })
     .populate('user', 'name mobile')
     .populate('items.product', 'name')
     .sort({ createdAt: -1 });
     
+    console.log('Delivery orders found:', orders.length);
     res.json({ success: true, data: orders });
   } catch (err) {
-    console.error('Error fetching orders by pincode:', err);
+    console.error('Error fetching delivery orders:', err);
     res.status(500).json({ success: false, error: 'Failed to fetch orders' });
   }
 });
@@ -54,4 +54,4 @@ router.put('/orders/:id', async (req, res) => {
   }
 });
 
-export default router;
+module.exports = router;

@@ -3,6 +3,9 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 require('dotenv').config();
 
+// Import and load all models
+require('./models');
+
 // Import routes
 const deliveryRoutes = require('./routes/delivery');
 const orderRoutes = require('./routes/orders');
@@ -12,7 +15,10 @@ const pincodeRoutes = require('./routes/pincodes');
 const app = express();
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: 'http://localhost:5173',
+  credentials: true
+}));
 app.use(express.json());
 
 // Routes

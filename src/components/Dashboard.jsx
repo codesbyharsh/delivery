@@ -36,12 +36,15 @@ const Dashboard = () => {
     if (!selectedPincode) return;
     
     setLoading(true);
+    setError('');
     try {
+      console.log('Fetching orders for pincode:', selectedPincode);
       const response = await axios.get(`${API_BASE_URL}/orders/available/${selectedPincode}`);
+      console.log('Orders response:', response.data);
       setOrders(response.data);
     } catch (err) {
       console.error('Error fetching orders:', err);
-      setError('Failed to fetch orders');
+      setError('Failed to fetch orders. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -63,6 +66,8 @@ const Dashboard = () => {
       setBucketList(bucketList.map(order => 
         order._id === orderId ? { ...order, orderStatus: status } : order
       ));
+      
+      alert(`Order status updated to ${status}`);
     } catch (err) {
       console.error('Error updating order status:', err);
       setError('Failed to update order status');
@@ -73,12 +78,29 @@ const Dashboard = () => {
   const addToBucketList = (order) => {
     if (!bucketList.find(item => item._id === order._id)) {
       setBucketList([...bucketList, order]);
+      alert('Order added to your delivery bucket!');
     }
   };
 
   // Remove order from bucket list
   const removeFromBucketList = (orderId) => {
     setBucketList(bucketList.filter(item => item._id !== orderId));
+  };
+
+  // Start sharing location (mock function)
+  const startSharingLocation = () => {
+    setIsSharingLocation(true);
+    // In a real app, you would start tracking the user's location here
+    console.log('Location sharing started');
+    alert('Location sharing started');
+  };
+
+  // Stop sharing location (mock function)
+  const stopSharingLocation = () => {
+    setIsSharingLocation(false);
+    // In a real app, you would stop tracking the user's location here
+    console.log('Location sharing stopped');
+    alert('Location sharing stopped');
   };
 
   useEffect(() => {
@@ -98,7 +120,7 @@ const Dashboard = () => {
       <div className="dashboard-content">
         <LocationSharing 
           isSharing={isSharingLocation} 
-          onToggleSharing={() => setIsSharingLocation(!isSharingLocation)} 
+          onToggleSharing={isSharingLocation ? stopSharingLocation : startSharingLocation}
         />
         
         <PincodeSelector 
@@ -106,6 +128,12 @@ const Dashboard = () => {
           selectedPincode={selectedPincode} 
           onPincodeChange={setSelectedPincode} 
         />
+        
+        {error && (
+          <div className="error-message">
+            {error}
+          </div>
+        )}
         
         <div className="orders-container">
           <OrdersList 

@@ -1,3 +1,4 @@
+// server/routes/orders.js
 const express = require('express');
 const Order = require('../models/Order');
 
@@ -20,7 +21,6 @@ router.get('/', async (req, res) => {
       .populate('items.product', 'name')
       .sort({ createdAt: -1 });
     
-    // Build timestamps object
     const data = orders.map(o => ({
       ...o._doc,
       timestamps: {
@@ -36,6 +36,64 @@ router.get('/', async (req, res) => {
   } catch (error) {
     console.error('Error fetching orders:', error);
     res.status(500).json({ success: false, error: 'Failed to fetch orders' });
+  }
+});
+
+// New: Get available orders for a specific pincode (returns plain array)
+router.get('/available/:pincode', async (req, res) => {
+  try {
+    const { pincode } = req.params;
+    console.log('Fetching available orders for pincode:', pincode);
+
+    const orders = await Order.find({
+      'shippingAddress.pincode': pincode,
+      orderStatus: { $in: ['Placed', 'Out for Delivery'] }
+    })
+      .populate('user', 'name mobile')
+      .populate('items.product', 'name')
+      .sort({ createdAt: -1 });
+
+    console.log('Found orders:', orders.length);
+    // return plain array (frontend expects array)
+    res.json(orders);
+  } catch (error) {
+    console.error('Error fetching available orders:', error);
+    res.status(500).json({ success: false, error: 'Failed to fetch available orders' });
+  }
+});
+
+// New: Update order status via POST /:orderId/status
+router.post('/:orderId/status', async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const { status, rider } = req.body;
+
+    const validStatuses = ['Placed', 'Processing', 'Shipped', 'Out for Delivery', 'Delivered', 'Cancelled', 'Queue for Tomorrow'];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ success: false, error: 'Invalid status' });
+    }
+
+    const update = { orderStatus: status };
+
+    // maintain timestamps
+    if (status === 'Shipped') update.shippedAt = new Date();
+    if (status === 'Out for Delivery') update.outForDeliveryAt = new Date();
+    if (status === 'Delivered') {
+      update.deliveredAt = new Date();
+      if (rider) update.deliveredBy = rider;
+    }
+    if (status === 'Cancelled') update.cancellationRequested = false;
+
+    const order = await Order.findByIdAndUpdate(orderId, update, { new: true })
+      .populate('user', 'name mobile')
+      .populate('items.product', 'name');
+
+    if (!order) return res.status(404).json({ success: false, error: 'Order not found' });
+
+    res.json({ success: true, data: order });
+  } catch (error) {
+    console.error('Error updating order status:', error);
+    res.status(500).json({ success: false, error: 'Failed to update order status' });
   }
 });
 

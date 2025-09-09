@@ -1,9 +1,10 @@
+// server/models/index.js
 const mongoose = require('mongoose');
 
-// Import all models
+// Import all models with exact casing
 require('./User');
 require('./Product');
-require('./Order')
+require('./Order');
 require('./Pincode');
 require('./RiderLocation');
 

@@ -1,3 +1,4 @@
+// src/components/Dashboard.jsx
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import Header from './Header';
@@ -24,14 +25,16 @@ const Dashboard = () => {
   const fetchPincodes = async () => {
     try {
       const response = await axios.get(`${API_BASE_URL}/pincodes`);
-      setPincodes(response.data);
+      // response.data might be plain array or wrapped — handle both
+      const data = Array.isArray(response.data) ? response.data : response.data.data || [];
+      setPincodes(data);
     } catch (err) {
       console.error('Error fetching pincodes:', err);
       setError('Failed to fetch pincodes');
     }
   };
 
-  // Fetch orders based on selected pincode
+  // Fetch orders based on selected pincode (now uses /orders/available/:pincode)
   const fetchOrders = async () => {
     if (!selectedPincode) return;
     
@@ -40,11 +43,14 @@ const Dashboard = () => {
     try {
       console.log('Fetching orders for pincode:', selectedPincode);
       const response = await axios.get(`${API_BASE_URL}/orders/available/${selectedPincode}`);
-      console.log('Orders response:', response.data);
-      setOrders(response.data);
+      // Our backend returns plain array for available route
+      const data = Array.isArray(response.data) ? response.data : response.data.data || [];
+      console.log('Orders response count:', data.length);
+      setOrders(data);
     } catch (err) {
       console.error('Error fetching orders:', err);
       setError('Failed to fetch orders. Please try again.');
+      setOrders([]);
     } finally {
       setLoading(false);
     }
@@ -55,18 +61,19 @@ const Dashboard = () => {
     try {
       await axios.post(`${API_BASE_URL}/orders/${orderId}/status`, { 
         status, 
-        rider: currentUser.username 
+        rider: currentUser?.username || currentUser?.name || 'unknown'
       });
       
       // Update local state
-      setOrders(orders.map(order => 
+      setOrders(prev => prev.map(order => 
         order._id === orderId ? { ...order, orderStatus: status } : order
       ));
       
-      setBucketList(bucketList.map(order => 
+      setBucketList(prev => prev.map(order => 
         order._id === orderId ? { ...order, orderStatus: status } : order
       ));
       
+      // small feedback
       alert(`Order status updated to ${status}`);
     } catch (err) {
       console.error('Error updating order status:', err);
@@ -87,18 +94,16 @@ const Dashboard = () => {
     setBucketList(bucketList.filter(item => item._id !== orderId));
   };
 
-  // Start sharing location (mock function)
+  // Start/Stop sharing location (these are passed to LocationSharing component)
   const startSharingLocation = () => {
     setIsSharingLocation(true);
-    // In a real app, you would start tracking the user's location here
+    // Optional: implement real geolocation in Delivery Partner UI
     console.log('Location sharing started');
-    alert('Location sharing started');
+    alert('Location sharing started (you may be asked for permission)');
   };
 
-  // Stop sharing location (mock function)
   const stopSharingLocation = () => {
     setIsSharingLocation(false);
-    // In a real app, you would stop tracking the user's location here
     console.log('Location sharing stopped');
     alert('Location sharing stopped');
   };
@@ -108,9 +113,7 @@ const Dashboard = () => {
   }, []);
 
   useEffect(() => {
-    if (selectedPincode) {
-      fetchOrders();
-    }
+    if (selectedPincode) fetchOrders();
   }, [selectedPincode]);
 
   return (

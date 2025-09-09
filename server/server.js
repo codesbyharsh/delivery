@@ -12,6 +12,7 @@ const orderRoutes = require('./routes/orders');
 const riderRoutes = require('./routes/rider');
 const pincodeRoutes = require('./routes/pincodes');
 
+
 const app = express();
 
 // Middleware
@@ -23,7 +24,7 @@ app.use(express.json());
 
 // Routes
 app.use('/api/delivery', deliveryRoutes);
-app.use('/api/orders', orderRoutes);
+app.use('/api/orders', orderRoutes); // <-- makes /api/orders/available/:pincode work
 app.use('/api/rider', riderRoutes);
 app.use('/api/pincodes', pincodeRoutes);
 

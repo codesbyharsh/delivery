@@ -145,27 +145,30 @@ const DeliveryPartnerApp = () => {
   };
 
   // Location sharing helpers
-  const startSharingLocation = async () => {
-    setError('');
-    if (!currentUser) { setError('Login first to share location'); return; }
-    if (!('geolocation' in navigator)) { setError('Geolocation not supported'); return; }
+const LOCATION_INTERVAL_MS = 3000;
+const startSharingLocation = async () => {
+  setError('');
+  if (!currentUser) { setError('Login first to share location'); return; }
+  if (!('geolocation' in navigator)) { setError('Geolocation not supported'); return; }
 
-    try {
-      // check permission (optional)
-      if (navigator.permissions && navigator.permissions.query) {
-        try {
-          const p = await navigator.permissions.query({ name: 'geolocation' });
-          if (p.state === 'denied') {
-            setError('Location permission denied. Allow location in browser settings.');
-            return;
-          }
-        } catch (permErr) {
-          // ignore permission check errors and proceed to request position
+  try {
+    // quick permission check
+    if (navigator.permissions && navigator.permissions.query) {
+      try {
+        const p = await navigator.permissions.query({ name: 'geolocation' });
+        if (p.state === 'denied') {
+          setError('Location permission denied. Allow location in browser settings.');
+          return;
         }
-      }
+      } catch (e) { /* ignore */ }
+    }
 
-      // attempt watchPosition
-      const watchId = navigator.geolocation.watchPosition(async (pos) => {
+    // clear existing if any
+    if (locationIntervalRef.current) clearInterval(locationIntervalRef.current);
+
+    // immediately send one position then start interval
+    const sendPos = () => {
+      navigator.geolocation.getCurrentPosition(async (pos) => {
         try {
           await axios.post(`${API_BASE_URL}/rider/location`, {
             username: currentUser.username,
@@ -173,58 +176,34 @@ const DeliveryPartnerApp = () => {
             longitude: parseFloat(pos.coords.longitude),
             timestamp: new Date().toISOString()
           });
-          // optional: console.log('Location posted', pos.coords);
         } catch (err) {
           console.error('Error posting location:', err);
         }
-      }, async (err) => {
-        console.error('watchPosition error:', err);
-        // fallback: attempt single-shot getCurrentPosition every 10s
-        // only set fallback if user hasn't stopped sharing
-        if (!watchIdRef.current && isSharingLocation) return;
-      }, { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 });
+      }, (err) => {
+        console.error('getCurrentPosition error:', err);
+        setError('Geolocation error or permission denied');
+      }, { enableHighAccuracy: true, maximumAge: 1000, timeout: 5000 });
+    };
 
-      watchIdRef.current = watchId;
-      setIsSharingLocation(true);
+    sendPos(); // send immediately
+    locationIntervalRef.current = setInterval(sendPos, LOCATION_INTERVAL_MS);
 
-      // As extra fallback for environments where watchPosition isn't reliable,
-      // also push a location every 12s using getCurrentPosition:
-      locationIntervalRef.current = setInterval(async () => {
-        navigator.geolocation.getCurrentPosition(async (pos) => {
-          try {
-            await axios.post(`${API_BASE_URL}/rider/location`, {
-              username: currentUser.username,
-              latitude: parseFloat(pos.coords.latitude),
-              longitude: parseFloat(pos.coords.longitude),
-              timestamp: new Date().toISOString()
-            });
-          } catch (err) {
-            console.error('Error posting fallback location:', err);
-          }
-        }, (e) => {
-          console.error('getCurrentPosition fallback error:', e);
-        }, { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 });
-      }, 12_000);
+    setIsSharingLocation(true);
+    alert('Started sharing location every 3 seconds');
+  } catch (err) {
+    console.error('Error starting location sharing:', err);
+    setError('Unable to start location sharing');
+  }
+};
 
-      alert('Started sharing location — allow browser location permission if prompted.');
-    } catch (err) {
-      console.error('Error starting location sharing:', err);
-      setError('Unable to start location sharing');
-    }
-  };
-
-  const stopSharingLocation = () => {
-    if (watchIdRef.current !== null && navigator.geolocation) {
-      navigator.geolocation.clearWatch(watchIdRef.current);
-      watchIdRef.current = null;
-    }
-    if (locationIntervalRef.current) {
-      clearInterval(locationIntervalRef.current);
-      locationIntervalRef.current = null;
-    }
-    setIsSharingLocation(false);
-    alert('Stopped sharing location');
-  };
+const stopSharingLocation = () => {
+  if (locationIntervalRef.current) {
+    clearInterval(locationIntervalRef.current);
+    locationIntervalRef.current = null;
+  }
+  setIsSharingLocation(false);
+  alert('Stopped sharing location');
+};
 
   // UI helpers
   const goToOrders = () => setView('orders');

@@ -1,6 +1,7 @@
 // server/routes/orders.js
 const express = require('express');
 const Order = require('../models/Order');
+const Rider = require('../models/Rider');
 
 const router = express.Router();
 
@@ -43,22 +44,18 @@ router.get('/', async (req, res) => {
 router.get('/available/:pincode', async (req, res) => {
   try {
     const { pincode } = req.params;
-    console.log('Fetching available orders for pincode:', pincode);
-
     const orders = await Order.find({
       'shippingAddress.pincode': pincode,
       orderStatus: { $in: ['Placed', 'Out for Delivery'] }
     })
-      .populate('user', 'name mobile')
-      .populate('items.product', 'name')
-      .sort({ createdAt: -1 });
+    .populate('user', 'name mobile')
+    .populate('items.product', 'name price')
+    .sort({ createdAt: -1 });
 
-    console.log('Found orders:', orders.length);
-    // return plain array (frontend expects array)
-    res.json(orders);
-  } catch (error) {
-    console.error('Error fetching available orders:', error);
-    res.status(500).json({ success: false, error: 'Failed to fetch available orders' });
+    res.json(orders); // client expects array
+  } catch (err) {
+    console.error('Error fetching available orders:', err);
+    res.status(500).json({ error: 'Failed to fetch orders' });
   }
 });
 
@@ -70,30 +67,42 @@ router.post('/:orderId/status', async (req, res) => {
 
     const validStatuses = ['Placed', 'Processing', 'Shipped', 'Out for Delivery', 'Delivered', 'Cancelled', 'Queue for Tomorrow'];
     if (!validStatuses.includes(status)) {
-      return res.status(400).json({ success: false, error: 'Invalid status' });
+      return res.status(400).json({ message: 'Invalid status' });
     }
 
-    const update = { orderStatus: status };
 
-    // maintain timestamps
-    if (status === 'Shipped') update.shippedAt = new Date();
-    if (status === 'Out for Delivery') update.outForDeliveryAt = new Date();
-    if (status === 'Delivered') {
-      update.deliveredAt = new Date();
-      if (rider) update.deliveredBy = rider;
-    }
-    if (status === 'Cancelled') update.cancellationRequested = false;
+const update = { orderStatus: status };
+
+if (status === 'Order Placed') update.placedAt = new Date();
+if (status === 'Packed / Processing') update.packedAt = new Date();
+if (status === 'Shipped / Dispatched') update.shippedAt = new Date();
+if (status === 'Out for Delivery') update.outForDeliveryAt = new Date();
+if (status === 'Delivered') {
+  update.deliveredAt = new Date();
+  update.inBucketList = false;
+  update.bucketedBy = null;
+}
+
 
     const order = await Order.findByIdAndUpdate(orderId, update, { new: true })
       .populate('user', 'name mobile')
       .populate('items.product', 'name');
 
-    if (!order) return res.status(404).json({ success: false, error: 'Order not found' });
+    if (!order) return res.status(404).json({ message: 'Order not found' });
+
+    // If delivered and it was in some rider's bucket list, remove from that rider
+    if (status === 'Delivered' && order.bucketedBy) {
+      try {
+        await Rider.findByIdAndUpdate(order.bucketedBy, { $pull: { bucketList: order._id } });
+      } catch (e) {
+        console.warn('Failed to remove order from rider bucket list:', e.message);
+      }
+    }
 
     res.json({ success: true, data: order });
-  } catch (error) {
-    console.error('Error updating order status:', error);
-    res.status(500).json({ success: false, error: 'Failed to update order status' });
+  } catch (err) {
+    console.error('Error updating order status:', err);
+    res.status(500).json({ error: 'Failed to update order status' });
   }
 });
 

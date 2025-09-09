@@ -1,15 +1,15 @@
+// server/routes/delivery.js
 const express = require('express');
-const Order = require('../models/Order'); // Make sure this path is correct
-const Pincode = require('../models/Pincode'); // Make sure this path is correct
+const Order = require('../models/Order');
+const Pincode = require('../models/Pincode');
+const Rider = require('../models/Rider');
 
 const router = express.Router();
 
-// Get orders by pincode
+// existing: get orders by pincode
 router.get('/orders/:pincode', async (req, res) => {
   try {
     const { pincode } = req.params;
-    console.log('Fetching delivery orders for pincode:', pincode);
-    
     const orders = await Order.find({
       'shippingAddress.pincode': pincode,
       orderStatus: { $in: ['Placed', 'Out for Delivery'] }
@@ -17,8 +17,7 @@ router.get('/orders/:pincode', async (req, res) => {
     .populate('user', 'name mobile')
     .populate('items.product', 'name')
     .sort({ createdAt: -1 });
-    
-    console.log('Delivery orders found:', orders.length);
+
     res.json({ success: true, data: orders });
   } catch (err) {
     console.error('Error fetching delivery orders:', err);
@@ -26,32 +25,55 @@ router.get('/orders/:pincode', async (req, res) => {
   }
 });
 
-// Update order status (for delivery partners)
-router.put('/orders/:id', async (req, res) => {
+// ADD to bucket
+// body: { riderId }
+// POST /api/delivery/bucket/:orderId/add  -> body: { riderId }
+router.post('/bucket/:orderId/add', async (req, res) => {
   try {
-    const { orderStatus } = req.body;
-    
-    // Validate the status
-    const validStatuses = ['Placed', 'Out for Delivery', 'Delivered', 'Cancelled', 'Queue for Tomorrow'];
-    if (!validStatuses.includes(orderStatus)) {
-      return res.status(400).json({ success: false, error: 'Invalid order status' });
+    const { orderId } = req.params;
+    const { riderId } = req.body;
+    const order = await Order.findByIdAndUpdate(orderId, {
+      inBucketList: true,
+      bucketedBy: riderId
+    }, { new: true });
+
+    if (!order) return res.status(404).json({ message: 'Order not found' });
+
+    // push to rider's bucketList
+    if (riderId) {
+      await Rider.findByIdAndUpdate(riderId, { $addToSet: { bucketList: order._id } });
     }
-    
-    const order = await Order.findByIdAndUpdate(
-      req.params.id,
-      { orderStatus },
-      { new: true }
-    );
-    
-    if (!order) {
-      return res.status(404).json({ success: false, error: 'Order not found' });
-    }
-    
+
     res.json({ success: true, data: order });
   } catch (err) {
-    console.error('Error updating order status:', err);
-    res.status(500).json({ success: false, error: 'Failed to update order status' });
+    console.error('Error adding to bucket:', err);
+    res.status(500).json({ error: 'Failed to add to bucket' });
   }
 });
+
+// POST /api/delivery/bucket/:orderId/remove -> body: { riderId }
+router.post('/bucket/:orderId/remove', async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const { riderId } = req.body;
+
+    const order = await Order.findByIdAndUpdate(orderId, {
+      inBucketList: false,
+      bucketedBy: null
+    }, { new: true });
+
+    if (!order) return res.status(404).json({ message: 'Order not found' });
+
+    if (riderId) {
+      await Rider.findByIdAndUpdate(riderId, { $pull: { bucketList: order._id } });
+    }
+
+    res.json({ success: true, data: order });
+  } catch (err) {
+    console.error('Error removing from bucket:', err);
+    res.status(500).json({ error: 'Failed to remove from bucket' });
+  }
+});
+
 
 module.exports = router;

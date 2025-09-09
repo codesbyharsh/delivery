@@ -27,15 +27,14 @@ const OrderItem = ({
         <p><strong>Status:</strong> {order.orderStatus}</p>
       </div>
       <div className="order-actions">
-        {showAddButton && (
-          <button 
-            onClick={() => onAddToBucket(order)}
-            disabled={inBucket}
-            className="btn btn-primary"
-          >
-            Add to Bucket
-          </button>
-        )}
+      {showAddButton && (
+  inBucket ? (
+    <button onClick={() => onRemoveFromBucket(order._id)} className="btn btn-secondary">Already in Bucket</button>
+  ) : (
+    <button onClick={() => onAddToBucket(order)} className="btn btn-primary">Add to Bucket</button>
+  )
+)}
+
         
         {showStatusSelector && (
           <select

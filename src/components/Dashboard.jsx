@@ -1,12 +1,12 @@
-// src/components/Dashboard.jsx
+// src/components/Dashboard.jsx - top imports
 import React, { useState, useEffect } from 'react';
+import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
 import Header from './Header';
 import LocationSharing from './LocationSharing';
 import PincodeSelector from './PincodeSelector';
 import OrdersList from './OrdersList';
-import BucketList from './BucketList';
-import axios from 'axios';
+import BucketPage from './BucketPage'; // new page component
 import './Dashboard.css';
 
 const API_BASE_URL = 'http://localhost:5000/api';
@@ -18,141 +18,141 @@ const Dashboard = () => {
   const [pincodes, setPincodes] = useState([]);
   const [orders, setOrders] = useState([]);
   const [bucketList, setBucketList] = useState([]);
+  const [completedOrders, setCompletedOrders] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [view, setView] = useState('orders'); // 'orders' | 'bucket' | 'completed'
+  const [lastLocation, setLastLocation] = useState(null);
 
-  // Fetch pincodes from backend
+  useEffect(() => {
+    fetchPincodes();
+    // if you have saved bucket list for rider, fetch it here (optional)
+  }, []);
+
   const fetchPincodes = async () => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/pincodes`);
-      // response.data might be plain array or wrapped — handle both
-      const data = Array.isArray(response.data) ? response.data : response.data.data || [];
+      const res = await axios.get(`${API_BASE_URL}/pincodes`);
+      const data = Array.isArray(res.data) ? res.data : res.data.data || [];
       setPincodes(data);
-    } catch (err) {
-      console.error('Error fetching pincodes:', err);
-      setError('Failed to fetch pincodes');
-    }
+    } catch (err) { console.error(err); setError('Failed to fetch pincodes'); }
   };
 
-  // Fetch orders based on selected pincode (now uses /orders/available/:pincode)
   const fetchOrders = async () => {
     if (!selectedPincode) return;
-    
-    setLoading(true);
-    setError('');
+    setLoading(true); setError('');
     try {
-      console.log('Fetching orders for pincode:', selectedPincode);
-      const response = await axios.get(`${API_BASE_URL}/orders/available/${selectedPincode}`);
-      // Our backend returns plain array for available route
-      const data = Array.isArray(response.data) ? response.data : response.data.data || [];
-      console.log('Orders response count:', data.length);
+      const res = await axios.get(`${API_BASE_URL}/orders/available/${selectedPincode}`);
+      const data = Array.isArray(res.data) ? res.data : (res.data.data || []);
       setOrders(data);
     } catch (err) {
       console.error('Error fetching orders:', err);
       setError('Failed to fetch orders. Please try again.');
       setOrders([]);
-    } finally {
-      setLoading(false);
+    } finally { setLoading(false); }
+  };
+
+  // call when pincode changes
+  useEffect(() => { if (selectedPincode) fetchOrders(); }, [selectedPincode]);
+
+  // start/stop sharing handlers passed to LocationSharing
+  const handleStartLocation = () => setIsSharingLocation(true);
+  const handleStopLocation = () => setIsSharingLocation(false);
+
+  // called by LocationSharing every time a new location is successfully posted
+  const handleNewLocation = (payload) => {
+    setLastLocation(payload);
+    console.log('Location stored:', payload);
+  };
+
+  // toggle bucket: tries server add/remove endpoints
+  const toggleBucketForOrder = async (order) => {
+    try {
+      const exists = bucketList.some(o => o._id === order._id);
+      if (exists) {
+        // remove from bucket
+        await axios.post(`${API_BASE_URL}/delivery/bucket/${order._id}/remove`, { riderId: currentUser._id });
+        setBucketList(prev => prev.filter(i => i._id !== order._id));
+      } else {
+        // add to bucket
+        await axios.post(`${API_BASE_URL}/delivery/bucket/${order._id}/add`, { riderId: currentUser._id });
+        setBucketList(prev => [...prev, order]);
+      }
+      // update orders array locally to reflect inBucketList
+      setOrders(prev => prev.map(o => o._id === order._id ? { ...o, inBucketList: !exists } : o));
+    } catch (err) {
+      console.error('Failed toggling bucket', err);
+      setError('Failed to update bucket. Try again.');
     }
   };
 
-  // Update order status
   const updateOrderStatus = async (orderId, status) => {
     try {
-      await axios.post(`${API_BASE_URL}/orders/${orderId}/status`, { 
-        status, 
-        rider: currentUser?.username || currentUser?.name || 'unknown'
-      });
-      
-      // Update local state
-      setOrders(prev => prev.map(order => 
-        order._id === orderId ? { ...order, orderStatus: status } : order
-      ));
-      
-      setBucketList(prev => prev.map(order => 
-        order._id === orderId ? { ...order, orderStatus: status } : order
-      ));
-      
-      // small feedback
-      alert(`Order status updated to ${status}`);
+      await axios.post(`${API_BASE_URL}/orders/${orderId}/status`, { status, rider: currentUser.username });
+      if (status === 'Delivered') {
+        // remove from lists and add to completed
+        setOrders(prev => prev.filter(o => o._id !== orderId));
+        setBucketList(prev => prev.filter(o => o._id !== orderId));
+        // For simplicity, fetch the updated order and add to completed
+        const res = await axios.get(`${API_BASE_URL}/orders/${orderId}`); // optional: add GET /orders/:id if not present
+        if (res.data) setCompletedOrders(prev => [...prev, res.data]);
+      } else {
+        setOrders(prev => prev.map(o => o._id === orderId ? { ...o, orderStatus: status } : o));
+        setBucketList(prev => prev.map(o => o._id === orderId ? { ...o, orderStatus: status } : o));
+      }
     } catch (err) {
       console.error('Error updating order status:', err);
       setError('Failed to update order status');
     }
   };
 
-  // Add order to bucket list
-  const addToBucketList = (order) => {
-    if (!bucketList.find(item => item._id === order._id)) {
-      setBucketList([...bucketList, order]);
-      alert('Order added to your delivery bucket!');
-    }
-  };
-
-  // Remove order from bucket list
-  const removeFromBucketList = (orderId) => {
-    setBucketList(bucketList.filter(item => item._id !== orderId));
-  };
-
-  // Start/Stop sharing location (these are passed to LocationSharing component)
-  const startSharingLocation = () => {
-    setIsSharingLocation(true);
-    // Optional: implement real geolocation in Delivery Partner UI
-    console.log('Location sharing started');
-    alert('Location sharing started (you may be asked for permission)');
-  };
-
-  const stopSharingLocation = () => {
-    setIsSharingLocation(false);
-    console.log('Location sharing stopped');
-    alert('Location sharing stopped');
-  };
-
-  useEffect(() => {
-    fetchPincodes();
-  }, []);
-
-  useEffect(() => {
-    if (selectedPincode) fetchOrders();
-  }, [selectedPincode]);
-
   return (
     <div className="dashboard">
-      <Header user={currentUser} onLogout={logout} />
-      
+      <Header user={currentUser} onLogout={logout}/>
       <div className="dashboard-content">
-        <LocationSharing 
-          isSharing={isSharingLocation} 
-          onToggleSharing={isSharingLocation ? stopSharingLocation : startSharingLocation}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+          <button onClick={() => setView('orders')} className="btn">Orders</button>
+          <button onClick={() => setView('bucket')} className="btn">My Bucket ({bucketList.length})</button>
+          <button onClick={() => setView('completed')} className="btn">Completed ({completedOrders.length})</button>
+        </div>
+
+        <LocationSharing
+          isSharing={isSharingLocation}
+          currentUser={currentUser}
+          onStarted={handleStartLocation}
+          onStopped={handleStopLocation}
+          onNewLocation={handleNewLocation}
         />
-        
-        <PincodeSelector 
-          pincodes={pincodes} 
-          selectedPincode={selectedPincode} 
-          onPincodeChange={setSelectedPincode} 
-        />
-        
-        {error && (
-          <div className="error-message">
-            {error}
-          </div>
-        )}
-        
-        <div className="orders-container">
-          <OrdersList 
-            orders={orders} 
+
+        <PincodeSelector pincodes={pincodes} selectedPincode={selectedPincode} onPincodeChange={setSelectedPincode} />
+
+        {error && <div className="error-message">{error}</div>}
+
+        {view === 'orders' && (
+          <OrdersList
+            orders={orders}
             loading={loading}
             selectedPincode={selectedPincode}
-            onAddToBucket={addToBucketList}
+            onToggleBucket={toggleBucketForOrder}
+            onAddToBucket={(o) => toggleBucketForOrder(o)}
             bucketList={bucketList}
           />
-          
-          <BucketList 
+        )}
+
+        {view === 'bucket' && (
+          <BucketPage
             orders={bucketList}
             onUpdateStatus={updateOrderStatus}
-            onRemoveFromBucket={removeFromBucketList}
+            onRemoveFromBucket={(orderId) => toggleBucketForOrder({ _id: orderId })}
           />
-        </div>
+        )}
+
+        {view === 'completed' && (
+          <div>
+            <h2>Completed Orders</h2>
+            {completedOrders.map(o => <div key={o._id}>Order #{o._id.slice(-6)} — Delivered</div>)}
+          </div>
+        )}
+
       </div>
     </div>
   );
